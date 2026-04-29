@@ -1,0 +1,26 @@
+{
+  "name": "mcpipe",
+  "version": "0.1.0",
+  "description": "Open-source MCP server",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts",
+    "lint": "eslint src"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "latest",
+    "axios": "latest",
+    "express": "latest",
+    "zod": "latest"
+  },
+  "devDependencies": {
+    "@types/express": "latest",
+    "@types/node": "latest",
+    "eslint": "latest",
+    "ts-node": "latest",
+    "typescript": "latest"
+  },
+  "license": "MIT"
+}
