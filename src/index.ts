@@ -159,7 +159,7 @@ server.tool(
   {
     task_id: z.string(),
     result: z.string(),
-    metadata: z.record(z.unknown()).optional(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
   },
   async ({ task_id, result, metadata }) => {
     try {
