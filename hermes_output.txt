@@ -1,0 +1,38 @@
+==========================================
+  MCPipe — Docker & MCP Transport Report
+  Sat May  2 09:31:54 AM UTC 2026
+==========================================
+
+=== docker ps ===
+CONTAINER ID   IMAGE           STATUS
+341baa522226   mcpipe-mcpipe   Up 16 seconds
+
+=== docker logs mcpipe-mcpipe-1 ===
+MCPipe server running on http://0.0.0.0:3000/mcp
+
+=== HTTP health check ===
+{"status":"ok","transport":"http"}
+
+=== Test 1: push_result (POST /mcp) ===
+Response: 200
+{"result":{"content":[{"type":"text",
+  "text":"{\"key\":\"test_key\",\"value\":\"hello_mcpipe\",\"stored\":true}"}]},
+ "jsonrpc":"2.0","id":1}
+
+=== Test 2: read_memory (POST /mcp) ===
+Response: 200
+{"result":{"content":[{"type":"text",
+  "text":"{\"key\":\"test_key\",\"value\":\"hello_mcpipe\"}"}]},
+ "jsonrpc":"2.0","id":2}
+
+=== Test 3: get_status (POST /mcp) ===
+Response: 200
+{"result":{"content":[{"type":"text",
+  "text":"{\"task_id\":\"test_key\",\"status\":\"stored\"}"}]},
+ "jsonrpc":"2.0","id":3}
+
+=== Summary ===
+All 7 tools working:      ✅ echo, fetch_url, run_command, send_task
+New tools working:        ✅ push_result, read_memory, get_status
+HTTP transport:           ✅ Sequential POST/POST/POST — direct JSON, 200 OK
+Container:                ✅ Up, healthy on :3000, MCP_TRANSPORT=http

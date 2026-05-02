@@ -6,17 +6,19 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import express from "express";
 
-const { StreamableHTTPServerTransport } = require("@modelcontextprotocol/sdk/server/streamableHttp");
-
 const execAsync = promisify(exec);
 
 const AGENT_URL = process.env.AGENT_URL ?? "";
-const AGENT_AUTH_TOKEN=process.env.AGENT_AUTH_TOKEN ?? "";
+const AGENT_AUTH_TOKEN = process.env.AGENT_AUTH_TOKEN ?? "";
 
 const agentHeaders = () => ({
   "Content-Type": "application/json",
   ...(AGENT_AUTH_TOKEN ? { Authorization: `Bearer ${AGENT_AUTH_TOKEN}` } : {}),
 });
+
+const store = new Map<string, string>();
+let lastTaskId: string | null = null;
+let lastStatus: string | null = null;
 
 const server = new McpServer({
   name: "mcpipe",
@@ -101,6 +103,10 @@ server.tool(
         { prompt, context, priority },
         { headers: agentHeaders() }
       );
+      const taskId = `task_${Date.now()}`;
+      lastTaskId = taskId;
+      lastStatus = "sent";
+      store.set(taskId, JSON.stringify({ prompt, context, priority }));
       return {
         content: [{ type: "text", text: JSON.stringify(response.data) }],
       };
@@ -113,71 +119,63 @@ server.tool(
 
 server.tool(
   "get_status",
-  "Gets the status of a task by task_id",
+  "Gets the status of the most recent task",
   {
-    task_id: z.string(),
+    task_id: z.string().optional(),
   },
   async ({ task_id }) => {
-    try {
-      const response = await axios.get(
-        `${AGENT_URL}/status/${task_id}`,
-        { headers: agentHeaders() }
-      );
+    if (task_id) {
+      const value = store.get(task_id) ?? null;
       return {
-        content: [{ type: "text", text: JSON.stringify(response.data) }],
+        content: [{
+          type: "text",
+          text: JSON.stringify({ task_id, status: value ? "stored" : "not_found", data: value }),
+        }],
       };
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      return { content: [{ type: "text", text: `Error: ${message}` }] };
     }
+    return {
+      content: [{
+        type: "text",
+        text: JSON.stringify({ task_id: lastTaskId, status: lastStatus }),
+      }],
+    };
   }
 );
 
 server.tool(
   "read_memory",
-  "Reads memory from the agent",
+  "Reads a value from the in-process store by key",
   {
-    key: z.string().optional(),
-    namespace: z.string().optional(),
+    key: z.string(),
   },
-  async ({ key, namespace }) => {
-    try {
-      const response = await axios.get(
-        `${AGENT_URL}/memory`,
-        { headers: agentHeaders(), params: { key, namespace } }
-      );
-      return {
-        content: [{ type: "text", text: JSON.stringify(response.data) }],
-      };
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      return { content: [{ type: "text", text: `Error: ${message}` }] };
-    }
+  async ({ key }) => {
+    const value = store.get(key) ?? null;
+    return {
+      content: [{
+        type: "text",
+        text: JSON.stringify({ key, value }),
+      }],
+    };
   }
 );
 
 server.tool(
   "push_result",
-  "Pushes a result back to the agent",
+  "Stores a key-value pair in the in-process store",
   {
-    task_id: z.string(),
-    result: z.string(),
-    metadata: z.record(z.string(), z.unknown()).optional(),
+    key: z.string(),
+    value: z.string(),
   },
-  async ({ task_id, result, metadata }) => {
-    try {
-      const response = await axios.post(
-        `${AGENT_URL}/result`,
-        { task_id, result, metadata },
-        { headers: agentHeaders() }
-      );
-      return {
-        content: [{ type: "text", text: JSON.stringify(response.data) }],
-      };
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      return { content: [{ type: "text", text: `Error: ${message}` }] };
-    }
+  async ({ key, value }) => {
+    store.set(key, value);
+    lastTaskId = key;
+    lastStatus = "stored";
+    return {
+      content: [{
+        type: "text",
+        text: JSON.stringify({ key, value, stored: true }),
+      }],
+    };
   }
 );
 
@@ -185,9 +183,15 @@ async function startStdio() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   if (!process.env.AGENT_URL || process.env.AGENT_URL.includes('your-agent.com') || process.env.AGENT_URL === '') {
-    console.warn('WARNING: AGENT_URL not configured. Tools send_task, get_status, push_result, read_memory will return error.');
+    console.warn('WARNING: AGENT_URL not configured. Tool send_task will return error.');
   }
   console.error("MCPipe server running on stdio");
+}
+
+interface PendingRequest {
+  resolve: (value: any) => void;
+  reject: (err: any) => void;
+  timer: NodeJS.Timeout;
 }
 
 async function startHttp() {
@@ -195,20 +199,43 @@ async function startHttp() {
   const app = express();
   app.use(express.json());
 
-  const transport = new StreamableHTTPServerTransport({
-    GET: "/mcp",
-    POST: "/mcp",
-  });
+  const transport = new StdioServerTransport();
+  const pending = new Map<string | number, PendingRequest>();
+
+  transport.start = async () => {};
+  transport.send = async (message: any) => {
+    const id = message?.id;
+    if (id !== undefined && pending.has(id)) {
+      const { resolve, timer } = pending.get(id)!;
+      clearTimeout(timer);
+      pending.delete(id);
+      resolve(message);
+    }
+  };
+  transport.close = async () => {};
+
   await server.connect(transport);
 
-  app.all("/mcp", async (req, res) => {
+  app.post("/mcp", async (req, res) => {
+    const message = req.body;
+    const id = message?.id;
+
     try {
-      await transport.handleRequest(req, res, req.body);
+      const result = await new Promise<any>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          pending.delete(id);
+          reject(new Error("timeout"));
+        }, 30000);
+
+        pending.set(id, { resolve, reject, timer });
+        transport.onmessage?.(message);
+      });
+
+      res.json(result);
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      console.error("MCP handleRequest error:", message);
+      const msg = err instanceof Error ? err.message : String(err);
       if (!res.headersSent) {
-        res.status(500).json({ error: message });
+        res.status(500).json({ error: msg });
       }
     }
   });
