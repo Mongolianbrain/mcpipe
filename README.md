@@ -1,50 +1,31 @@
 # MCPipe
 
-A lightweight MCP server exposing system tools over HTTP — built with Node.js, TypeScript, and the Model Context Protocol SDK.
+A lightweight MCP server that exposes tools for Claude and other AI agents to execute commands, fetch URLs, and manage task queues — over stdio or HTTP.
 
-## Quick Start
+![works with Claude](https://img.shields.io/badge/works%20with-Claude-blueviolet)
 
-```bash
-git clone https://github.com/Mongolianbrain/mcpipe.git
-cd mcpipe
-cp .env.example .env
-npm install
-npm run build
-npm start
-```
+## Quickstart
 
-## Docker Deploy
+docker run -p 3000:3000 mongolianbrain/mcpipe
 
-```bash
-docker compose up -d
-```
+Test it:
+
+curl -X POST http://localhost:3000/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"tool":"fetch_url","input":{"url":"https://example.com"}}'
 
 ## Tools
 
-| Tool | Description |
-|------|-------------|
-| `echo` | Returns the input message |
-| `fetch_url` | Fetches content from a URL |
-| `run_command` | Executes a shell command on the server |
-| `send_task` | Sends a task to a remote agent |
-| `get_status` | Returns server or task status |
-| `read_memory` | Reads a value from memory store |
-| `push_result` | Pushes a result to memory store |
+| Tool | Input | Output |
+|------|-------|--------|
+| echo | message: string | echoed message |
+| fetch_url | url: string | page content |
+| run_command | command: string | stdout + stderr |
+| send_task | task: string | task id |
+| get_status | id: string | task status |
+| read_memory | key: string | stored value |
+| push_result | key: string, value: string | confirmation |
 
-## Environment Variables
+## Contributing
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `PORT` | No | Server port (default: 3000) |
-| `ALLOWED_COMMANDS` | No | Comma-separated list of allowed shell commands |
-| `MEMORY_STORE_PATH` | No | Path to memory store file |
-| `REMOTE_AGENT_URL` | No | URL of remote agent for send_task |
-
-## Requirements
-
-- Node.js 18+
-- Docker (optional)
-
-## License
-
-MIT
+See CONTRIBUTING.md
