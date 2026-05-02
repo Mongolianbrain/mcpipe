@@ -1,5 +1,5 @@
 {
-  "name": "mcpipe",
+  "name": "@mongolianbrain83/mcpipe",
   "version": "0.1.0",
   "description": "Open-source MCP server",
   "main": "dist/index.js",
