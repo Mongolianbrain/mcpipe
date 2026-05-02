@@ -181,6 +181,9 @@ server.tool(
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
+  if (!process.env.AGENT_URL || process.env.AGENT_URL.includes('your-agent.com') || process.env.AGENT_URL === '') {
+    console.warn('WARNING: AGENT_URL not configured. Tools send_task, get_status, push_result, read_memory will return error.');
+  }
   console.error("MCPipe server running on stdio");
 }
 
