@@ -4,11 +4,14 @@ import { z } from "zod";
 import axios from "axios";
 import { exec } from "child_process";
 import { promisify } from "util";
+import express from "express";
+
+const { StreamableHTTPServerTransport } = require("@modelcontextprotocol/sdk/server/streamableHttp");
 
 const execAsync = promisify(exec);
 
 const AGENT_URL = process.env.AGENT_URL ?? "";
-const AGENT_AUTH_TOKEN = process.env.AGENT_AUTH_TOKEN ?? "";
+const AGENT_AUTH_TOKEN=process.env.AGENT_AUTH_TOKEN ?? "";
 
 const agentHeaders = () => ({
   "Content-Type": "application/json",
@@ -178,7 +181,7 @@ server.tool(
   }
 );
 
-async function main() {
+async function startStdio() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   if (!process.env.AGENT_URL || process.env.AGENT_URL.includes('your-agent.com') || process.env.AGENT_URL === '') {
@@ -187,7 +190,48 @@ async function main() {
   console.error("MCPipe server running on stdio");
 }
 
-main().catch((err) => {
-  console.error("Fatal:", err);
-  process.exit(1);
-});
+async function startHttp() {
+  const PORT = parseInt(process.env.MCP_PORT ?? "3000", 10);
+  const app = express();
+  app.use(express.json());
+
+  const transport = new StreamableHTTPServerTransport({
+    GET: "/mcp",
+    POST: "/mcp",
+  });
+  await server.connect(transport);
+
+  app.all("/mcp", async (req, res) => {
+    try {
+      await transport.handleRequest(req, res, req.body);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("MCP handleRequest error:", message);
+      if (!res.headersSent) {
+        res.status(500).json({ error: message });
+      }
+    }
+  });
+
+  app.get("/health", (_req, res) => {
+    res.json({ status: "ok", transport: "http" });
+  });
+
+  app.listen(PORT, () => {
+    console.error(`MCPipe server running on http://0.0.0.0:${PORT}/mcp`);
+  });
+}
+
+const transportMode = process.env.MCP_TRANSPORT ?? "stdio";
+
+if (transportMode === "http") {
+  startHttp().catch((err) => {
+    console.error("Fatal:", err);
+    process.exit(1);
+  });
+} else {
+  startStdio().catch((err) => {
+    console.error("Fatal:", err);
+    process.exit(1);
+  });
+}
